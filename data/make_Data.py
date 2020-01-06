@@ -5,8 +5,12 @@ import pickle
 np.random.seed(1234)
 
 output1 = open('subtask1_pretrain.txt', 'w')
+output3 = open('./dev.txt', 'w', encoding='utf-8')
+output4 = open('./train.txt', 'w', encoding='utf-8')
+output3.write('context\tnext\tlabel\n')
+output4.write('context\tnext\tlabel\n')
 
-def make1(path):
+def makemb(path, output):
 
     path_prefix = path.strip('json')
 
@@ -45,6 +49,7 @@ def make1(path):
         all_next.append(neg_answer[r[0]].strip().split())
         # output3.write('0' + '\n')
         labels.append(0)
+        output.write(context.strip(' _eou_ ') + '\t' + neg_answer[r[0]].strip() + '\t' + '0\n')
         # all_context.append(context.strip(' _eou_ ').split())
         # all_next.append(neg_answer[r[1]].strip().split())
         # # output3.write('0' + '\n')
@@ -63,11 +68,11 @@ def make1(path):
         all_next.append(options_for_correct_answers.strip().split())
         # output3.write('1' + '\n')
         labels.append(1)
+        output.write(context.strip(' _eou_ ') + '\t' + options_for_correct_answers.strip() + '\t' + '1\n')
         # vocabs.extend(context.split() + options_for_correct_answers.split() + neg_answer[r[0]].split()+ neg_answer[r[1]].split()+ neg_answer[r[2]].split()+ neg_answer[r[3]].split())
         assert len(all_context) == len(all_next) == len(labels)
+    output.close()
 
-    # output2.close()
-    # output3.close()
     f.close()
     return all_context, all_next, labels
 
@@ -103,39 +108,30 @@ def save_vectors(path, dim, vocabs):
     return wv
 
 vocabs_dict = {}
-dev_context, dev_next, dev_labels = make1('./ubuntu_dev_subtask_1.json')
-train_context, train_next, train_labels = make1('./ubuntu_train_subtask_1.json')
+dev_context, dev_next, dev_labels = makemb('./ubuntu_dev_subtask_1.json', output3)
+train_context, train_next, train_labels = makemb('./ubuntu_train_subtask_1.json', output4)
+assert len(dev_context) == len(dev_next) == len(dev_labels)
+assert len(train_context) == len(train_next) == len(train_labels)
+
 output1.close()
 vocabs = []
 vocabs = save_vectors('./vectors.txt', 300, vocabs)
 glove_6B_300d_wv = save_vectors('./glove.6B.300d.txt', 300, vocabs)
-glove_840B_300d_wv = save_vectors('./glove.840B.300d.txt', 300, vocabs)
-glove_twitter_270B_200d_wv = save_vectors('./glove.twitter.27B.200d.txt', 200, vocabs)
-# vectors = []
-# vectors.append(np.zeros([800],dtype=np.float32))
-# vectors.append(np.random.normal(size=[800]))
 
-e1 = []
-e2 = []
-e3 = []
-e1.append(np.zeros([800],dtype=np.float32))
-e1.append(np.random.normal(size=[800]))
-e2.append(np.zeros([800],dtype=np.float32))
-e2.append(np.random.normal(size=[800]))
-e3.append(np.zeros([800],dtype=np.float32))
-e3.append(np.random.normal(size=[800]))
+
+emb = []
+emb.append(np.zeros([300],dtype=np.float32))
+emb.append(np.random.normal(size=[300]))
+
 for i in vocabs:
     v1 = glove_6B_300d_wv.get(i, np.random.normal(size=[300]))
-    v2 = glove_840B_300d_wv.get(i, np.random.normal(size=[300]))
-    v3 = glove_twitter_270B_200d_wv.get(i, np.random.normal(size=[200]))
-    # v = np.concatenate([v1, v2, v3], axis=-1)
-    # vectors.append(v)
-    e1.append(v1)
-    e2.append(v2)
-    e3.append(v3)
-e1 = np.asarray(e1,dtype=np.float32)
-e2 = np.asarray(e2,dtype=np.float32)
-e3 = np.asarray(e3,dtype=np.float32)
+    emb.append(v1)
+emb = np.asarray(emb,dtype=np.float32)
+
+output2 = open('./vocab.txt','w', encoding='utf-8')
+for i in vocabs:
+    output2.write(i + '\n')
+output2.close()
 for index, i in enumerate(vocabs):
     vocabs_dict[i] = index + 2
 vocabs_dict['UNK'] = 1
@@ -146,38 +142,49 @@ import tensorflow as tf
 def preprocess_data(data, max_len, padding, truncating):
     data_ids = []
     seq_lengts = []
+    masks = []
     for example in data:
         ids_ = []
+        mask = []
         for word in example:
             ids_.append(vocabs_dict.get(word, 1))
-        seq_lengts.append(len(ids_))
+            mask.append(1)
+        seq_lengts.append(max_len if len(ids_)>max_len else len(ids_))
         data_ids.append(ids_)
+        masks.append(mask)
     data_ids = tf.keras.preprocessing.sequence.pad_sequences(data_ids,
                                                              value=vocabs_dict['PAD'],
                                                              padding=padding,
                                                              truncating=truncating,
                                                              maxlen=max_len)
-    return data_ids, seq_lengts
+    mask_pad = tf.keras.preprocessing.sequence.pad_sequences(masks,
+                                                             value=0,
+                                                             padding=padding,
+                                                             truncating=truncating,
+                                                             maxlen=max_len)
+    return data_ids, seq_lengts, mask_pad
 
 
-train_context, train_context_lengths = preprocess_data(train_context, 300, 'pre', 'pre')
-train_next, train_next_lengths = preprocess_data(train_next, 30, 'post', 'post')
-dev_context, dev_context_lengths = preprocess_data(dev_context, 300, 'pre', 'pre')
-dev_next, dev_next_lengths = preprocess_data(dev_next, 30, 'post', 'post')
+train_context, train_context_lengths, train_context_masks = preprocess_data(train_context, 300, 'pre', 'pre')
+train_next, train_next_lengths, train_next_masks = preprocess_data(train_next, 30, 'post', 'post')
+dev_context, dev_context_lengths, dev_context_masks = preprocess_data(dev_context, 300, 'pre', 'pre')
+dev_next, dev_next_lengths, dev_next_masks = preprocess_data(dev_next, 30, 'post', 'post')
 vocabs_size = len(vocabs_dict.items())
 with open('./train_dev_data.pkl', 'wb') as f:
     pickle.dump(train_context, f)
     pickle.dump(train_next, f)
     pickle.dump(train_labels, f)
+    pickle.dump(train_context_masks, f)
+    pickle.dump(train_next_masks, f)
     pickle.dump(dev_context, f)
     pickle.dump(dev_next, f)
     pickle.dump(dev_labels, f)
+    pickle.dump(dev_context_masks, f)
+    pickle.dump(dev_next_masks, f)
     pickle.dump(vocabs_size, f)
     pickle.dump(vocabs_dict, f)
     pickle.dump(index_dict, f)
-    pickle.dump(e1, f),
-    pickle.dump(e2, f),
-    pickle.dump(e3, f),
+    pickle.dump(emb, f),
     pickle.dump(train_context_lengths,f)
     pickle.dump(train_next_lengths, f)
     pickle.dump(dev_context_lengths, f)
