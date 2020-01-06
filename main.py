@@ -14,11 +14,7 @@ handler.setLevel(logging.INFO)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
-# train_context_path = './data/ubuntu_train_subtask_1._context.txt'
-# train_next_path = './data/ubuntu_train_subtask_1._next.txt'
-# dev_context_path = './data/ubuntu_dev_subtask_1._context.txt'
-# dev_next_path = './data/ubuntu_dev_subtask_1._next.txt'
-# vocab_path = "./data/ubuntu_subtask_1_vocab.txt"
+
 with open('./data/train_dev_data.pkl', 'rb') as f:
     train_context = pickle.load(f)
     train_next = pickle.load(f)
@@ -40,7 +36,7 @@ with open('./data/train_dev_data.pkl', 'rb') as f:
     dev_next_lengths = pickle.load(f)
 
 if len(sys.argv) == 2 and sys.argv[1] == 'train':
-    model = CapsuleModel(vocabs_size, emb)
+    model = Model(vocabs_size, emb)
     model.build_graph()
     sess = tf.Session()
     sess.run(tf.global_variables_initializer())
